@@ -1,7 +1,7 @@
 # Predictive-Modeling-to-Optimize-Fitness-Class-Capacity
 Predictive Modeling to Optimize Class Capacity at GoalZone Fitness 
 
-The goal is to Predict modeling to Optimize Class Capacity at GoalZone
+The goal is to build Predictive modeling to optimize fitness class capacity at GoalZone.
 GoalZone is a fitness club chain in Canada. GoalZone offers a range of fitness classes in two capacities - 25 and 15. Some classes are always fully booked. 
 
 Business Problem
