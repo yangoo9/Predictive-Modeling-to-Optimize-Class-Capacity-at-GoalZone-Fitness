@@ -1,0 +1,310 @@
+---
+title: "Predictive Modeling to Optimize Class Capacity at GoalZone Fitness"
+author: "Yan Naing Oo"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+---
+
+# Load Packages
+
+```{r}
+
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(randomForest)
+library(pROC)
+
+```
+
+# Load data from fitness_class_2212.csv file
+
+```{r}
+
+df_fc <- read_csv("fitness_class_2212.csv", show_col_types = FALSE)
+
+head(df_fc)
+
+```
+
+# Data Preprocessing
+
+```{r}
+
+colSums(is.na(df_fc))
+
+# check the number of missing values
+sum(is.na(df_fc$months_as_member)) # 0 missing data
+sum(is.na(df_fc$weight)) # 20 missing data
+sum(is.na(df_fc$days_before)) # 0 missing data
+sum(is.na(df_fc$day_of_week)) # 0 missing data
+sum(is.na(df_fc$time)) # 0 missing data
+sum(is.na(df_fc$category)) # 0 missing data
+sum(is.na(df_fc$attended)) # 0 missing data
+
+# Replace missing values with the overall average weight
+df_fc$weight[is.na(df_fc$weight)] <- mean(df_fc$weight, na.rm = TRUE)
+sum(is.na(df_fc$weight)) # 0 missing data
+
+
+# Remove 'days' from the values and convert the column into numeric
+df_fc$days_before <- as.numeric(gsub(" days", "", df_fc$days_before))
+
+# Replace hyphens with "unknown" in the 'category' column
+df_fc$category <- gsub("-", "unknown", df_fc$category)
+
+# Create a mapping dictionary
+day_mapping <- c("Mon" = "Mon",
+                 "Monday" = "Mon",
+                 "Tue" = "Tue",
+                 "Wed" = "Wed",
+                 "Wednesday" = "Wed",
+                 "Thu" = "Thu",
+                 "Fri" = "Fri",
+                 "Fri." = "Fri",
+                 "Sat" = "Sat",
+                 "Sun" = "Sun")
+
+# Use the mapping dictionary to replace the values in the 'day_of_week' column
+df_fc$day_of_week <- day_mapping[as.character(df_fc$day_of_week)]
+
+
+head(df_fc ,10)
+```
+
+# Descriptive Analysis
+
+```{r}
+# T2 
+# Create bar plot 
+ggplot(df_fc, aes(x = factor(attended))) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5) +
+  labs(x = "Attended", y = "Count", title = "Attendance Distribution")
+
+```
+
+"0" indicates that a member did not attend the class that they booked. "1" indicates that a member attended the class that they booked.
+
+The bar plot appears that more people book classes but don't attend (Attended = 0) compared to those who book and do attend (Attended = 1).
+
+```{r}
+# T3
+# Create the histogram
+ggplot(df_fc, aes(x=months_as_member)) + geom_histogram(binwidth=1) +
+  labs(x = "Months as member", y = "Count", title = "Distribution of Months as member")
+
+```
+
+it appears that the histogram for the "Months as member" variable has a unimodal distribution with the mode (highest frequency) at around the 20 months.
+
+This suggests that the majority of the members have been a part of the fitness club for approximately 20 months, after which the number of members begins to decline.
+
+```{r}
+# T4
+# Create the box plot
+ggplot(df_fc, aes(x=factor(attended), y=months_as_member)) + geom_boxplot() +
+  labs(x = "Attended", y = "Months as member", title = "Relationship between attendance and Months as member")
+
+```
+
+The outliers for Attended(0) range from 25 to 50 months, while those for Attended(1) range from 50 to 150 months.
+
+This suggests that members who have been a part of the club for a longer time (over 50 months) are more likely to attend their booked classes.
+
+# Data Transformation
+
+### Encoding categorical variables
+
+```{r}
+
+# Ensure the attended variable is a factor
+df_fc$attended <- as.factor(df_fc$attended)
+
+# For nominal variables
+df_fc$booking_id <- as.factor(df_fc$booking_id)
+df_fc$category <- as.factor(df_fc$category)
+
+# For ordinal variables
+df_fc$day_of_week <- ordered(df_fc$day_of_week, levels = c('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'))
+df_fc$time <- ordered(df_fc$time, levels = c('AM', 'PM'))
+
+
+```
+
+### Split train and test set
+
+```{r}
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Create index for the split
+train_index <- createDataPartition(df_fc$attended, p = 0.7, list = FALSE)
+
+# training and test sets
+train_set <- df_fc[train_index,] # 70% 
+test_set <- df_fc[-train_index,] # 30%
+
+```
+
+# Model Fitting
+
+```{r}
+
+# Exclude the 'booking_id' as it's an identifier and not a predictor
+train_set$booking_id <- NULL
+test_set$booking_id <- NULL
+```
+
+#### Fit Logistic Regression for (Baseline) Model
+
+```{r}
+
+# Fit the model
+lr_model <- glm(attended ~ ., data = train_set, family = binomial)
+
+# Predict on the test set
+pred_lr <- predict(lr_model, newdata = test_set, type = "response")
+
+# Convert probabilities to binary prediction
+pred_lr_binary <- ifelse(pred_lr > 0.5, 1, 0)
+```
+
+#### Fit Random Forest for (Comparison) Model
+
+```{r}
+
+# Fit the model
+rf_model <- randomForest(attended ~ ., data = train_set, ntree = 100)
+
+# Predict on the test set
+pred_rf <- predict(rf_model, newdata = test_set)
+```
+
+Compared two models: Logistic Regression (baseline model) and Random Forest (comparison model). Here's an explanation of why these models were chosen
+
+`Logistic Regression (Baseline Model):`
+
+-   Chosen for its interpretability and simplicity.
+
+-   Models the relationship between predictors and the probability of the binary outcome.
+
+-   Assumes a linear relationship between predictors and log-odds.
+
+-   Provides coefficients indicating the impact of predictors on the outcome.
+
+`Random Forest (Comparison Model):`
+
+-   its ability to handle complex relationships and interactions.
+
+-   An ensemble method that combines multiple decision trees.
+
+-   Captures non-linear patterns and complex feature interactions.
+
+-   Robust against overfitting, performs well with default settings.
+
+-   Generates feature importance measures.
+
+# Performance Evaluation
+
+### Compare two model performance
+
+```{r}
+
+# Compare actual vs. predicted for both models
+lr_perf <- table(test_set$attended, pred_lr_binary)
+rf_perf <- table(test_set$attended, pred_rf)
+
+# Calculate accuracy for both models
+lr_accuracy <- sum(diag(lr_perf)) / sum(lr_perf)
+rf_accuracy <- sum(diag(rf_perf)) / sum(rf_perf)
+
+# Print the performance metrics
+cat("Logistic Regression Accuracy:", lr_accuracy, "\n")
+cat("Random Forest Accuracy:", rf_accuracy, "\n")
+```
+
+```{r}
+
+# Create a data frame for performance evaluation
+perf_data <- data.frame(Model = c("Logistic Regression", "Random Forest"),
+                        Accuracy = c(lr_accuracy, rf_accuracy))
+
+# Create the bar plot
+ggplot(perf_data, aes(x = Model, y = Accuracy, fill = Model, label = paste0(round(Accuracy * 100, 2), "%"))) +
+  geom_col(position = "identity") +
+  geom_text(position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(x = "Model", y = "Accuracy", title = "Model Accuracy Comparison") +
+  theme_minimal()
+
+```
+
+### Model Evaluation Metrics
+
+```{r}
+
+# Convert variables to numeric
+test_set$attended <- as.numeric(as.character(test_set$attended))
+pred_lr <- as.numeric(as.character(pred_lr))
+# Convert variables to numeric
+test_set$attended <- as.numeric(as.character(test_set$attended))
+pred_rf <- as.numeric(as.character(pred_rf))
+
+
+# Calculate RMSE for logistic regression
+rmse_lr <- sqrt(mean((test_set$attended - pred_lr)^2))
+# Calculate RMSE for random forest
+rmse_rf <- sqrt(mean((test_set$attended - pred_rf)^2))
+# Create a data frame for performance evaluation
+perf_data <- data.frame(Model = c("Logistic Regression", "Random Forest"),
+                        Accuracy = c(lr_accuracy, rf_accuracy),
+                        RMSE = c(rmse_lr, rmse_rf))
+
+# Print the performance metrics
+print(perf_data)
+
+
+```
+
+the logistic regression model performs better than the random forest model in predicting attendance for fitness classes. The best model performance is based on the higher accuracy rate and lower RMSE value achieved by the logistic regression model.
+
+The higher accuracy indicates that the logistic regression model makes more correct predictions, while the lower RMSE suggests that its predictions are closer to the actual values. Overall, the logistic regression model provides better performance in predicting attendance compared to the random forest model.
+
+```{r}
+
+# For logistic regression
+pred_prob_lr <- predict(lr_model, test_set, type = "response")
+# For random forest
+pred_prob_rf <- predict(rf_model, test_set, type = "prob")[, "1"]
+
+roc_lr <- roc(test_set$attended, pred_prob_lr)
+roc_rf <- roc(test_set$attended, pred_prob_rf)
+
+auc_lr <- auc(roc_lr)
+auc_rf <- auc(roc_rf)
+
+# Plot the ROC curve
+plot(roc_lr, main = paste("ROC Curve - Logistic Regression\nAUC =", round(auc_lr, 2)),col = "blue")
+plot(roc_rf, main = paste("ROC Curve - Random Forest\nAUC =", round(auc_rf, 2)), col = "red")
+
+
+```
+
+In general, an AUC value of 0.8 or higher is considered to be indicative of a good model performance. Therefore, both the Random Forest and Logistic Regression models can be considered reliable in predicting attendance based on the fitness class dataset.
+
+# Business Implications
+
+According to the prediction outcomes, there are some business implications:
+
+-   **Increased revenue:** By predicting which members are most likely to attend a class, GoalZone can allocate more space to those members. This will lead to more people attending classes, which will increase revenue.
+
+-   **Improved customer experience:** By ensuring that members can get a spot in the classes they want, GoalZone can improve the customer experience. This will help to reduce frustration and keep members happy.
+
+-   **Better allocation of resources:** By predicting which classes are likely to be most popular, GoalZone can ensure they have enough staff and equipment to meet demand. This will help improve the customer experience and avoid turning people away.
+
+-   **Reduced no-shows:** By predicting which members are most likely to attend a class, GoalZone can avoid having to offer refunds to members who do not attend. This will help to reduce costs and improve the bottom line.
+
+By use of a machine learning algorithm to predict whether or not a member will attend a class can have many positive business implications for GoalZone. By increasing revenue, improving the customer experience, and better allocating resources, GoalZone can use machine learning to improve its business.
