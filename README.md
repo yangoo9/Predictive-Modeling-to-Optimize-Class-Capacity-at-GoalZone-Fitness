@@ -1,4 +1,4 @@
-# Predictive-Modeling-to-Optimize-Fitness-Class-Capacity
+# Predictive-Modeling-to-Optimize-Fitness-Class-Capacity (DataCamp Data Scientist Project)
 Predictive Modeling to Optimize Class Capacity at GoalZone Fitness 
 
 Objective,
